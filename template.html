@@ -1,1 +1,81 @@
-Hello world
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chaosbackend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            padding: 20px 0;
+        }
+
+        dl {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            list-style-type: none;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        dl li {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        dl li:last-child {
+            border-bottom: none;
+        }
+
+        dl li a {
+            color: #333;
+            text-decoration: none;
+        }
+        dt {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 1.2em;
+        }
+        dl li a:hover {
+            color: #007BFF;
+        }
+
+        dd {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Chaosbackend</h1>
+    <p>This is a backend meant to be used with varnish to test different scenarios.</p>
+    <dl>
+        <dt><a href="/error">/error</a></dt>
+        <dd>Returns a 500 internal server error</dd>
+
+        <dt><a href="/error?status=404">/error?status=404</a></dt>
+        <dd>Returns a 404 error</dd>
+
+        <dt><a href="/error?status=404&sleep=5000">/error?status=404&sleep=5000</a></dt>
+        <dd>Returns a 404 error after 5 seconds</dd>
+
+        <dt><a href="/reset">/reset</a></dt>
+        <dd>Close connection like a champ!</dd>
+
+        <dt><a href="/slow?sleep=1000&sleepBetweenBytes=100">/slow?sleep=1000&sleepBetweenBytes=100</a></dt>
+        <dd>Returns a 200 but waits 1 second before start delivering, then wait 0.1 seconds between bytes</dd>
+    </dl>
+</body>
+
+</html>
