@@ -13,7 +13,7 @@ import (
 )
 
 type Config struct {
-	listen         string `json:"mainListen"`
+	Listen         string `json:"listen"`
 	FailOverListen string `json:"failOverListen"`
 }
 
@@ -21,7 +21,7 @@ func readConfig() Config {
 	file, err := os.Open("config.json")
 	if err != nil {
 		log.Println("Error opening config file, using default values:", err)
-		return Config{listen: "127.0.0.1:8080", FailOverListen: "127.0.0.1:8081"} // Default values
+		return Config{Listen: "127.0.0.1:8080", FailOverListen: "127.0.0.1:8081"} // Default values
 	}
 	defer file.Close()
 
@@ -30,7 +30,7 @@ func readConfig() Config {
 	err = decoder.Decode(&config)
 	if err != nil {
 		log.Println("Error decoding config file, using default values:", err)
-		return Config{listen: "127.0.0.1:8080", FailOverListen: "127.0.0.1:8081"} // Default values
+		return Config{Listen: "127.0.0.1:8080", FailOverListen: "127.0.0.1:8081"} // Default values
 	}
 	return config
 }
@@ -94,10 +94,13 @@ func resetConnectionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-
 	config := readConfig()
-	flagListen := flag.String("listen", config.listen, "IP to listen on")
-	config.listen = *flagListen
+	flagListen := flag.String("listen", config.Listen, "IP to listen on")
+	flagFailOverListen := flag.String("failoverlisten", config.FailOverListen, "IP to listen on")
+
+	flag.Parse()
+	config.Listen = *flagListen
+	config.FailOverListen = *flagFailOverListen
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/slow", slowHandler)
@@ -110,7 +113,7 @@ func main() {
 		log.Println("Starting failover server", config.FailOverListen)
 		log.Fatal(http.ListenAndServe(config.FailOverListen, failover_mux))
 	}()
-	log.Println("Starting main server on", config.listen)
+	log.Println("Starting main server on", config.Listen)
 
-	log.Fatal(http.ListenAndServe(config.listen, mux))
+	log.Fatal(http.ListenAndServe(config.Listen, mux))
 }
