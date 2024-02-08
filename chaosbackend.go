@@ -20,7 +20,7 @@ type Config struct {
 func readConfig() Config {
 	file, err := os.Open("config.json")
 	if err != nil {
-		log.Println("Error opening config file, using default values:", err)
+		log.Println("No config.json, using default values:", err)
 		return Config{Listen: "127.0.0.1:8080", FailOverListen: "127.0.0.1:8081"} // Default values
 	}
 	defer file.Close()
@@ -29,7 +29,7 @@ func readConfig() Config {
 	config := Config{}
 	err = decoder.Decode(&config)
 	if err != nil {
-		log.Println("Error decoding config file, using default values:", err)
+		log.Println("No config file found: ", err)
 		return Config{Listen: "127.0.0.1:8080", FailOverListen: "127.0.0.1:8081"} // Default values
 	}
 	return config
