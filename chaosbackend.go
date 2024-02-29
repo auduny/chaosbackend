@@ -1,39 +1,16 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 )
-
-type Config struct {
-	Listen         string `json:"listen"`
-	FailOverListen string `json:"failOverListen"`
-}
-
-func readConfig() Config {
-	file, err := os.Open("config.json")
-	if err != nil {
-		log.Println("No config.json, using default values:", err)
-		return Config{Listen: "127.0.0.1:8080", FailOverListen: "127.0.0.1:8081"} // Default values
-	}
-	defer file.Close()
-
-	decoder := json.NewDecoder(file)
-	config := Config{}
-	err = decoder.Decode(&config)
-	if err != nil {
-		log.Println("No config file found: ", err)
-		return Config{Listen: "127.0.0.1:8080", FailOverListen: "127.0.0.1:8081"} // Default values
-	}
-	return config
-}
 
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := template.ParseFiles("template.html")
@@ -93,27 +70,66 @@ func resetConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	conn.Close()
 }
 
+func addHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Backends", "snuskepus")
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
-	config := readConfig()
-	flagListen := flag.String("listen", config.Listen, "IP to listen on")
-	flagFailOverListen := flag.String("failoverlisten", config.FailOverListen, "IP to listen on")
-
+	var (
+		addressesInput string
+		portsInput     string
+	)
+	flag.StringVar(&addressesInput, "a", "127.0.0.1", "Comma-separated list of addresses")
+	flag.StringVar(&portsInput, "p", "8080", "Comma-separated list of ports or port ranges (e.g., 4000-4020)")
 	flag.Parse()
-	config.Listen = *flagListen
-	config.FailOverListen = *flagFailOverListen
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/slow", slowHandler)
-	mux.HandleFunc("/error", errorHandler)
-	mux.HandleFunc("/reset", resetConnectionHandler)
-	mux.HandleFunc("/", defaultHandler) // Register the default handler
-	failover_mux := http.NewServeMux()
-	failover_mux.HandleFunc("/", defaultHandler) // Register the default handler
-	go func() {
-		log.Println("Starting failover server", config.FailOverListen)
-		log.Fatal(http.ListenAndServe(config.FailOverListen, failover_mux))
-	}()
-	log.Println("Starting main server on", config.Listen)
-
-	log.Fatal(http.ListenAndServe(config.Listen, mux))
+	// Split the addresses and ports
+	addresses := strings.Split(addressesInput, ",")
+	portParts := strings.Split(portsInput, ",")
+	// Expand port ranges
+	var ports []string
+	for _, part := range portParts {
+		if strings.Contains(part, "-") {
+			rangeParts := strings.Split(part, "-")
+			start, err := strconv.Atoi(rangeParts[0])
+			if err != nil {
+				fmt.Printf("Invalid port range start: %s\n", rangeParts[0])
+				continue
+			}
+			end, err := strconv.Atoi(rangeParts[1])
+			if err != nil {
+				fmt.Printf("Invalid port range end: %s\n", rangeParts[1])
+				continue
+			}
+			for p := start; p <= end; p++ {
+				ports = append(ports, strconv.Itoa(p))
+			}
+		} else {
+			ports = append(ports, part)
+		}
+	}
+	var wg sync.WaitGroup
+	for _, address := range addresses {
+		for _, port := range ports {
+			fullAddr := fmt.Sprintf("%s:%s", address, port)
+			wg.Add(1)
+			go func(addr string) {
+				defer wg.Done()
+				mux := http.NewServeMux()
+				finalHandler := http.HandlerFunc(defaultHandler)
+				mux.HandleFunc("/slow", slowHandler)
+				mux.HandleFunc("/error", errorHandler)
+				mux.HandleFunc("/reset", resetConnectionHandler)
+				mux.Handle("/", addHeaders(finalHandler)) // Register the default handler
+				log.Println("Starting server on", addr)
+				log.Fatal(http.ListenAndServe(addr, mux))
+			}(fullAddr)
+		}
+	}
+	log.Println("Number of servers:", len(addresses)*len(ports))
+	wg.Wait() // Wait for all servers to finish
 }
