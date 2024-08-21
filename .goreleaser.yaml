@@ -53,7 +53,7 @@ nfpms:
     # Build IDs for the builds you want to create NFPM packages for.
     # Defaults empty, which means no filtering.
     # Your app's vendor.
-    vendor: VG AS
+    vendor: Ytterdal Ventures
 
     # Your app's homepage.
     homepage: https://github.com/auduny/chaosbackend
