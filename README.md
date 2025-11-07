@@ -1,4 +1,4 @@
-<img src="media/chaosbackend.svg" alt="Chaos backend" width="4  00" style="max-width:100%;height:auto;" />
+<img src="media/chaosbackend.svg" alt="Chaos backend" width="400" style="max-width:100%;height:auto;" />
 
 # Chaosbacked
 
