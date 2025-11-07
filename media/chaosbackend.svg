@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1600" viewBox="0 0 1200 1200">
+  <title>ChaosBackend Logo - White Sign with Orange Glow</title>
+  <desc>Chaotic mascot with white warning sign featuring subtle orange glow gradient.</desc>
+
+  <defs>
+    <linearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+    <linearGradient id="bellyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ecfeff"/>
+      <stop offset="100%" stop-color="#dbeafe"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="35%" cy="25%" r="60%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Orange glow gradient for the warning sign -->
+    <radialGradient id="warningGlow" cx="50%" cy="50%" r="75%">
+      <stop offset="0%" stop-color="#fff8e1" stop-opacity="1"/>
+      <stop offset="65%" stop-color="#ffedb3" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#fde68a" stop-opacity="0.7"/>
+    </radialGradient>
+
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.25"/>
+    </filter>
+
+    <style><![CDATA[
+      .ol{ fill:none; stroke:#0f172a; stroke-width:18; stroke-linecap:round; stroke-linejoin:round; }
+      .ol-thin{ fill:none; stroke:#0f172a; stroke-width:12; stroke-linecap:round; stroke-linejoin:round; }
+      .fill-dark{ fill:#0f172a; }
+      .fill-body{ fill:url(#bodyGrad); }
+      .fill-belly{ fill:url(#bellyGrad); }
+      .fill-shine{ fill:url(#shine); }
+    ]]></style>
+  </defs>
+
+  <g transform="translate(600,560) rotate(-3)">
+    <!-- Body -->
+    <g filter="url(#softShadow)">
+      <path class="ol fill-body" d="
+        M -245 210
+        C -330 115, -320 -45, -255 -185
+        C -180 -335, -40 -360, 20 -325
+        C 100 -280, 210 -230, 270 -140
+        C 340 -35, 330 120, 235 200
+        C 180 255, 78 300, -10 305
+        C -120 312, -210 275, -245 210 Z"/>
+      <ellipse class="ol fill-belly" cx="-18" cy="90" rx="190" ry="210" transform="rotate(-10)"/>
+      <ellipse class="fill-shine" cx="-80" cy="-140" rx="140" ry="110"/>
+    </g>
+
+    <!-- Ears -->
+    <path class="ol fill-body" d="M -182 -300 C -220 -330, -254 -288, -236 -252 C -228 -240, -206 -246, -192 -262 C -202 -268, -208 -280, -182 -300 Z"/>
+    <path class="ol fill-body" d="M 190 -270 C 230 -305, 262 -270, 240 -232 C 220 -198, 188 -214, 188 -242 Z"/>
+
+    <!-- Arms -->
+    <path class="ol fill-body" d="M -270 10 C -315 25, -320 70, -285 105 C -250 140, -210 110, -218 70 C -226 35, -240 20, -270 10 Z"/>
+    <path class="ol fill-body" d="M 255 -15 C 300 -5, 305 40, 270 60 C 230 82, 208 40, 220 10 C 230 -10, 240 -18, 255 -15 Z"/>
+
+    <!-- Feet -->
+    <ellipse class="ol" cx="-120" cy="300" rx="70" ry="36" transform="rotate(-8)" fill="#94a3b8"/>
+    <ellipse class="ol" cx="95" cy="295" rx="52" ry="30" transform="rotate(10)" fill="#94a3b8"/>
+
+    <!-- Eyes -->
+    <g>
+      <circle class="ol" cx="-98" cy="-100" r="70" fill="#ffffff"/>
+      <circle class="ol" cx="92" cy="-80" r="62" fill="#ffffff"/>
+      <circle class="fill-dark" cx="-58" cy="-78" r="18"/>
+      <circle class="fill-dark" cx="56" cy="-68" r="16"/>
+      <circle cx="-52" cy="-84" r="6" fill="#ffffff"/>
+      <circle cx="61" cy="-74" r="5" fill="#ffffff"/>
+    </g>
+
+    <!-- Nose + Teeth -->
+    <g transform="rotate(-6) translate(0,0)">
+      <ellipse class="ol-thin" cx="10" cy="-38" rx="30" ry="22" fill="#0ea5e9"/>
+      <circle class="fill-dark" cx="10" cy="-38" r="7"/>
+      <rect x="-22" y="-14" width="72" height="56" rx="8" fill="#f8fafc" class="ol-thin" transform="skewX(-5)"/>
+      <line x1="14" y1="-12" x2="14" y2="40" class="ol-thin"/>
+    </g>
+
+    <!-- Cheeks -->
+    <circle cx="-170" cy="-5" r="28" fill="#fecdd3" opacity="0.95"/>
+    <circle cx="150" cy="-20" r="20" fill="#fecdd3" opacity="0.9"/>
+
+    <!-- Lightning -->
+    <path d="M 46 -250 L -10 -180 L 45 -175 L -30 -105 L 32 -108 L -38 -40" fill="none" stroke="#f59e0b" stroke-width="18" stroke-linejoin="miter" stroke-linecap="square"/>
+
+    <!-- Warning Triangle with orange glow gradient -->
+    <g transform="translate(300,180) rotate(12) scale(1.05)">
+      <path d="M 0 -40 L 160 140 L -160 140 Z" fill="url(#warningGlow)" class="ol"/>
+      <line x1="0" y1="0" x2="0" y2="80" class="ol-thin"/>
+      <circle cx="0" cy="110" r="12" class="fill-dark"/>
+      <g transform="translate(-44,50) rotate(-8) scale(0.8)">
+        <ellipse cx="0" cy="0" rx="30" ry="36" fill="#0f172a"/>
+        <rect x="-6" y="-40" width="12" height="20" rx="4" fill="#0f172a"/>
+        <line x1="-34" y1="-8" x2="-56" y2="-8" class="ol-thin"/>
+        <line x1="34" y1="-8" x2="56" y2="-8" class="ol-thin"/>
+        <line x1="-30" y1="10" x2="-50" y2="26" class="ol-thin"/>
+        <line x1="30" y1="10" x2="50" y2="26" class="ol-thin"/>
+        <line x1="-30" y1="-24" x2="-50" y2="-36" class="ol-thin"/>
+        <line x1="30" y1="-24" x2="50" y2="-36" class="ol-thin"/>
+      </g>
+    </g>
+
+    <!-- Sparks -->
+    <g stroke="#f59e0b" stroke-width="10" stroke-linecap="round">
+      <line x1="-260" y1="-260" x2="-290" y2="-290"/>
+      <line x1="-220" y1="-300" x2="-240" y2="-340"/>
+      <line x1="240" y1="-260" x2="280" y2="-300"/>
+      <line x1="210" y1="-300" x2="240" y2="-340"/>
+    </g>
+  </g>
+</svg>
