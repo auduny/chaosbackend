@@ -1,10 +1,8 @@
 # Chaosbacked
+This is a simple Go server that starts one or more HTTP backends, designed to behave badly based on your input—perfect for testing proxies like Varnish.
 <p align="center">
 <img src="media/chaosbackend.svg" alt="Chaos backend" width="400" style="max-width:100%;height:auto;" />
 </p>
-
-This is a simple Go server that starts one or more HTTP backends, designed to behave badly based on your input—perfect for testing proxies like Varnish.
-
 ## Usage
 
 ```sh
