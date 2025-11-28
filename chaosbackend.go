@@ -25,8 +25,10 @@ type connection struct {
 	resetFreq      int
 }
 
+var templateFile string
+
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("template.html")
+	tmpl, err := template.ParseFiles(templateFile)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -139,13 +141,14 @@ func newHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	var (
-		addressesInput string
-		portsInput     string
-	)
-	flag.StringVar(&addressesInput, "a", "127.0.0.1", "Comma-separated list of addresses")
-	flag.StringVar(&portsInput, "p", "8080", "Comma-separated list of ports or port ranges (e.g., 4000-4020)")
-	flag.Parse()
+       var (
+	       addressesInput string
+	       portsInput     string
+       )
+       flag.StringVar(&addressesInput, "a", "127.0.0.1", "Comma-separated list of addresses")
+       flag.StringVar(&portsInput, "p", "8080", "Comma-separated list of ports or port ranges (e.g., 4000-4020)")
+       flag.StringVar(&templateFile, "template", "template.html", "Path to HTML template file for the default page")
+       flag.Parse()
 
 	// Split the addresses and ports
 	addresses := strings.Split(addressesInput, ",")
