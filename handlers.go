@@ -1,15 +1,12 @@
-package main
+package chaosbackend
 
 import (
-	"flag"
 	"fmt"
-	"html/template"
 	"log"
 	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -23,18 +20,6 @@ type connection struct {
 	slowbbSpan     int
 	reset          int
 	resetFreq      int
-}
-
-var templateFile string
-
-func defaultHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles(templateFile)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("X-Backend", "default")
-	tmpl.Execute(w, "This is the default page.")
 }
 
 func slowResponse(w http.ResponseWriter, sleepBeforeFirstByte time.Duration, sleepBetweenBytes time.Duration) {
@@ -54,13 +39,17 @@ func slowResponse(w http.ResponseWriter, sleepBeforeFirstByte time.Duration, sle
 	}
 }
 
-func slowHandler(w http.ResponseWriter, r *http.Request) {
+// SlowHandler serves "/slow": it streams a canned response one byte at a
+// time, with configurable delays before the first byte and between bytes.
+func SlowHandler(w http.ResponseWriter, r *http.Request) {
 	sleepBeforeFirstByte, _ := strconv.Atoi(r.URL.Query().Get("sleep"))
 	sleepBetweenBytes, _ := strconv.Atoi(r.URL.Query().Get("sleepBetweenBytes"))
 	slowResponse(w, time.Duration(sleepBeforeFirstByte)*time.Millisecond, time.Duration(sleepBetweenBytes)*time.Millisecond)
 }
 
-func errorHandler(w http.ResponseWriter, r *http.Request) {
+// ErrorHandler serves "/error": it returns an arbitrary HTTP status code,
+// optionally after a delay.
+func ErrorHandler(w http.ResponseWriter, r *http.Request) {
 	statusCode, _ := strconv.Atoi(r.URL.Query().Get("status"))
 	if statusCode == 0 {
 		// Default to 500
@@ -72,7 +61,9 @@ func errorHandler(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Returning Statuscode: "+strconv.Itoa(statusCode), statusCode)
 }
 
-func resetConnectionHandler(w http.ResponseWriter, r *http.Request) {
+// ResetHandler serves "/reset": it hijacks and immediately closes the
+// underlying TCP connection, simulating a connection reset.
+func ResetHandler(w http.ResponseWriter, r *http.Request) {
 	// Take over the connection
 	conn, _, err := w.(http.Hijacker).Hijack()
 	if err != nil {
@@ -85,15 +76,9 @@ func resetConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	conn.Close()
 }
 
-func addHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Backends", "snuskepus")
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func newHandler(w http.ResponseWriter, r *http.Request) {
+// FaultHandler serves "/new": a combined, probabilistic fault injector
+// driven by the status, slow, and reset query parameters.
+func FaultHandler(w http.ResponseWriter, r *http.Request) {
 	conn := connection{statusCode: 200, statusCodeFreq: 0, slowc: 0, slowcSpan: 0, slowcFreq: 10, slowbbSpan: 0, reset: 0, resetFreq: 0}
 	if r.URL.Query().Get("status") != "" {
 		statusParts := strings.Split(r.URL.Query().Get("status"), ",")
@@ -138,62 +123,4 @@ func newHandler(w http.ResponseWriter, r *http.Request) {
 		thisconnection.Close()
 	}
 	http.Error(w, "Returning Statuscode: "+strconv.Itoa(conn.statusCode)+" in "+strconv.Itoa(conn.slowc)+"ms", conn.statusCode)
-}
-
-func main() {
-       var (
-	       addressesInput string
-	       portsInput     string
-       )
-       flag.StringVar(&addressesInput, "a", "127.0.0.1", "Comma-separated list of addresses")
-       flag.StringVar(&portsInput, "p", "8080", "Comma-separated list of ports or port ranges (e.g., 4000-4020)")
-       flag.StringVar(&templateFile, "template", "template.html", "Path to HTML template file for the default page")
-       flag.Parse()
-
-	// Split the addresses and ports
-	addresses := strings.Split(addressesInput, ",")
-	portParts := strings.Split(portsInput, ",")
-	// Expand port ranges
-	var ports []string
-	for _, part := range portParts {
-		if strings.Contains(part, "-") {
-			rangeParts := strings.Split(part, "-")
-			start, err := strconv.Atoi(rangeParts[0])
-			if err != nil {
-				fmt.Printf("Invalid port range start: %s\n", rangeParts[0])
-				continue
-			}
-			end, err := strconv.Atoi(rangeParts[1])
-			if err != nil {
-				fmt.Printf("Invalid port range end: %s\n", rangeParts[1])
-				continue
-			}
-			for p := start; p <= end; p++ {
-				ports = append(ports, strconv.Itoa(p))
-			}
-		} else {
-			ports = append(ports, part)
-		}
-	}
-	var wg sync.WaitGroup
-	for _, address := range addresses {
-		for _, port := range ports {
-			fullAddr := fmt.Sprintf("%s:%s", address, port)
-			wg.Add(1)
-			go func(addr string) {
-				defer wg.Done()
-				mux := http.NewServeMux()
-				finalHandler := http.HandlerFunc(defaultHandler)
-				mux.HandleFunc("/slow", slowHandler)
-				mux.HandleFunc("/error", errorHandler)
-				mux.HandleFunc("/reset", resetConnectionHandler)
-				mux.HandleFunc("/new", newHandler)
-				mux.Handle("/", addHeaders(finalHandler)) // Register the default handler
-				log.Println("Starting server on", addr)
-				log.Fatal(http.ListenAndServe(addr, mux))
-			}(fullAddr)
-		}
-	}
-	log.Println("Number of servers:", len(addresses)*len(ports))
-	wg.Wait() // Wait for all servers to finish
 }
