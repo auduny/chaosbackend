@@ -6,7 +6,14 @@ This is a simple Go server that starts one or more HTTP backends, designed to be
 ## Usage
 
 ```sh
+go build -o chaosbackend ./cmd/chaosbackend
 ./chaosbackend [flags]
+```
+
+Or install directly:
+
+```sh
+go install github.com/auduny/chaosbackend/cmd/chaosbackend@latest
 ```
 
 ### Command-line Flags
@@ -15,7 +22,7 @@ This is a simple Go server that starts one or more HTTP backends, designed to be
 |------|-------------|---------|
 | `-a` | Comma-separated list of addresses to listen on | `127.0.0.1` |
 | `-p` | Comma-separated list of ports or port ranges (e.g., `4000-4020`) | `8080` |
-| `-template` | Path to HTML template file for the default page | `template.html` |
+| `-template` | Path to HTML template file for the default page | embedded default template |
 
 Example:
 ```sh
@@ -55,6 +62,28 @@ curl http://localhost:8080/reset
 curl http://localhost:8080/new?status=503,50
 curl http://localhost:8080/new?slow=1000,500,30
 curl http://localhost:8080/new?reset=1
+```
+
+## Use as a Library
+
+The fault-injection handlers can also be imported directly into another Go program:
+
+```go
+import "github.com/auduny/chaosbackend"
+
+srv, err := chaosbackend.New(chaosbackend.Config{})
+if err != nil {
+    log.Fatal(err)
+}
+http.ListenAndServe(":8080", srv.Mux())
+```
+
+Or wire individual handlers into your own mux:
+
+```go
+mux := http.NewServeMux()
+mux.HandleFunc("/error", chaosbackend.ErrorHandler)
+mux.HandleFunc("/slow", chaosbackend.SlowHandler)
 ```
 
 ---
