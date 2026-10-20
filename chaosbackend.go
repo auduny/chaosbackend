@@ -133,7 +133,6 @@ func hijackAndClose(w http.ResponseWriter) {
 }
 
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Backend", "default")
 	if err := tmpl.Execute(w, "This is the default page."); err != nil {
 		log.Println("Template error:", err)
 	}
@@ -191,11 +190,46 @@ func resetConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	hijackAndClose(w)
 }
 
-func addHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Backends", "snuskepus")
+// statusRecorder captures the status code for logging. Unwrap lets
+// http.ResponseController reach the underlying Flusher/Hijacker.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
 
-		next.ServeHTTP(w, r)
+func (s *statusRecorder) WriteHeader(code int) {
+	if s.status == 0 {
+		s.status = code
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	if s.status == 0 {
+		s.status = http.StatusOK
+	}
+	return s.ResponseWriter.Write(b)
+}
+
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
+
+// middleware tags responses with the serving listener and logs each request.
+func middleware(backend string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w}
+		defer func() {
+			status := "-" // no response written: hijacked or client gone
+			if rec.status != 0 {
+				status = strconv.Itoa(rec.status)
+			}
+			log.Printf("%s %s %s %s %s %s", backend, r.RemoteAddr, r.Method, r.URL.RequestURI(), status, time.Since(start).Round(time.Millisecond))
+		}()
+
+		w.Header().Set("X-Backend", backend)
+		next.ServeHTTP(rec, r)
 	})
 }
 
@@ -242,14 +276,14 @@ func newHandler(w http.ResponseWriter, r *http.Request) {
 	respond(w, conn.statusCode, "Returning Statuscode: "+strconv.Itoa(conn.statusCode)+" in "+strconv.Itoa(conn.slowc)+"ms")
 }
 
-func newMux() http.Handler {
+func newMux(backend string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/slow", slowHandler)
 	mux.HandleFunc("/error", errorHandler)
 	mux.HandleFunc("/reset", resetConnectionHandler)
 	mux.HandleFunc("/new", newHandler)
-	mux.Handle("/", addHeaders(http.HandlerFunc(defaultHandler)))
-	return mux
+	mux.HandleFunc("/", defaultHandler)
+	return middleware(backend, mux)
 }
 
 func main() {
@@ -307,7 +341,7 @@ func main() {
 				log.Fatal(err)
 			}
 			servers = append(servers, &http.Server{
-				Handler:           newMux(),
+				Handler:           newMux(addr),
 				ReadHeaderTimeout: 10 * time.Second,
 				BaseContext:       func(net.Listener) context.Context { return ctx },
 				// Stick to HTTP/1.1 over TLS, since connection hijacking (/reset) is not possible with HTTP/2
