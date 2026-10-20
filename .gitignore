@@ -1,3 +1,5 @@
 chaosbackend
 
 dist/
+*.key
+*.crt
