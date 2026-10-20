@@ -63,7 +63,7 @@ nfpms:
 
     # Your app's description.
     description: |-
-      Varnish prometheus exporter, both from varnishlog and varnishstats
+      HTTP backend that deliberately misbehaves, for testing proxies like Varnish
 
     # Your app's license.
     license: GPL v2.0
