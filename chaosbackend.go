@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"html/template"
@@ -22,7 +23,10 @@ type connection struct {
 	slowcFreq      int
 }
 
-var templateFile string
+//go:embed template.html
+var defaultTemplate string
+
+var tmpl *template.Template
 
 // sleep waits for d, returning false early if the client goes away.
 func sleep(ctx context.Context, d time.Duration) bool {
@@ -100,13 +104,10 @@ func hijackAndClose(w http.ResponseWriter) {
 }
 
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles(templateFile)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	w.Header().Set("X-Backend", "default")
-	tmpl.Execute(w, "This is the default page.")
+	if err := tmpl.Execute(w, "This is the default page."); err != nil {
+		log.Println("Template error:", err)
+	}
 }
 
 func slowHandler(w http.ResponseWriter, r *http.Request) {
@@ -216,11 +217,22 @@ func main() {
 	var (
 		addressesInput string
 		portsInput     string
+		templateFile   string
 	)
 	flag.StringVar(&addressesInput, "a", "127.0.0.1", "Comma-separated list of addresses")
 	flag.StringVar(&portsInput, "p", "8080", "Comma-separated list of ports or port ranges (e.g., 4000-4020)")
-	flag.StringVar(&templateFile, "template", "template.html", "Path to HTML template file for the default page")
+	flag.StringVar(&templateFile, "template", "", "Path to HTML template file for the default page (default: built-in)")
 	flag.Parse()
+
+	var err error
+	if templateFile != "" {
+		tmpl, err = template.ParseFiles(templateFile)
+	} else {
+		tmpl, err = template.New("default").Parse(defaultTemplate)
+	}
+	if err != nil {
+		log.Fatal("Parsing template: ", err)
+	}
 
 	// Split the addresses and ports
 	addresses := strings.Split(addressesInput, ",")
