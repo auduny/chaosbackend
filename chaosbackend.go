@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"html/template"
@@ -22,6 +23,38 @@ type connection struct {
 }
 
 var templateFile string
+
+// sleep waits for d, returning false early if the client goes away.
+func sleep(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// parseInt parses a non-negative integer query value, returning def when empty.
+func parseInt(s string, def int) (int, error) {
+	if s == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid number %q", s)
+	}
+	return n, nil
+}
+
+func parseMillis(s string) (time.Duration, error) {
+	n, err := parseInt(s, 0)
+	return time.Duration(n) * time.Millisecond, err
+}
 
 // chance returns true with pct percent probability (0 = never, 100 = always).
 func chance(pct int) bool {
@@ -76,27 +109,34 @@ func defaultHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl.Execute(w, "This is the default page.")
 }
 
-func slowResponse(w http.ResponseWriter, sleepBeforeFirstByte time.Duration, sleepBetweenBytes time.Duration) {
-	content := "Example content delivered slowly. Connect:" + sleepBeforeFirstByte.String() + " Betweenbytes:" + sleepBetweenBytes.String()
-	log.Println(content)
-	time.Sleep(sleepBeforeFirstByte)
-	w.Header().Set("Content-Type", "text/event-stream")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+func slowHandler(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	sleepBeforeFirstByte, err := parseMillis(q.Get("sleep"))
+	if err != nil {
+		badRequest(w, err)
 		return
 	}
+	sleepBetweenBytes, err := parseMillis(q.Get("sleepBetweenBytes"))
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	content := "Example content delivered slowly. Connect:" + sleepBeforeFirstByte.String() + " Betweenbytes:" + sleepBetweenBytes.String()
+	log.Println(content)
+	if !sleep(r.Context(), sleepBeforeFirstByte) {
+		return
+	}
+	rc := http.NewResponseController(w)
+	w.Header().Set("Content-Type", "text/event-stream")
 	for _, c := range content {
 		fmt.Fprintf(w, "%c", c)
-		flusher.Flush() // Manually flush the buffer
-		time.Sleep(sleepBetweenBytes)
+		if err := rc.Flush(); err != nil {
+			return
+		}
+		if !sleep(r.Context(), sleepBetweenBytes) {
+			return
+		}
 	}
-}
-
-func slowHandler(w http.ResponseWriter, r *http.Request) {
-	sleepBeforeFirstByte, _ := strconv.Atoi(r.URL.Query().Get("sleep"))
-	sleepBetweenBytes, _ := strconv.Atoi(r.URL.Query().Get("sleepBetweenBytes"))
-	slowResponse(w, time.Duration(sleepBeforeFirstByte)*time.Millisecond, time.Duration(sleepBetweenBytes)*time.Millisecond)
 }
 
 func errorHandler(w http.ResponseWriter, r *http.Request) {
@@ -105,9 +145,15 @@ func errorHandler(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	sleepBeforeFirstByte, _ := strconv.Atoi(r.URL.Query().Get("sleep"))
-	log.Println("Returning Statuscode:", statusCode, "Sleeping for", sleepBeforeFirstByte, "ms")
-	time.Sleep(time.Duration(sleepBeforeFirstByte) * time.Millisecond)
+	sleepBeforeFirstByte, err := parseMillis(r.URL.Query().Get("sleep"))
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	log.Println("Returning Statuscode:", statusCode, "Sleeping for", sleepBeforeFirstByte)
+	if !sleep(r.Context(), sleepBeforeFirstByte) {
+		return
+	}
 	respond(w, statusCode, "Returning Statuscode: "+strconv.Itoa(statusCode))
 }
 
@@ -155,7 +201,9 @@ func newHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	log.Println("Sleeping for", conn.slowc, "ms")
-	time.Sleep(time.Duration(conn.slowc) * time.Millisecond)
+	if !sleep(r.Context(), time.Duration(conn.slowc)*time.Millisecond) {
+		return
+	}
 
 	if r.URL.Query().Get("reset") != "" {
 		hijackAndClose(w)
