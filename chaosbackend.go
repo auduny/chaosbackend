@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -190,6 +191,26 @@ func resetConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	hijackAndClose(w)
 }
 
+// healthHandler serves a health check whose state can be flipped per listener,
+// e.g. to take a single backend out of a load balancer.
+func healthHandler(healthy *atomic.Bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health/up":
+			healthy.Store(true)
+		case "/health/down":
+			healthy.Store(false)
+		case "/health/toggle":
+			healthy.Store(!healthy.Load())
+		}
+		if healthy.Load() {
+			respond(w, http.StatusOK, "OK")
+		} else {
+			respond(w, http.StatusServiceUnavailable, "DOWN")
+		}
+	}
+}
+
 // statusRecorder captures the status code for logging. Unwrap lets
 // http.ResponseController reach the underlying Flusher/Hijacker.
 type statusRecorder struct {
@@ -277,11 +298,15 @@ func newHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func newMux(backend string) http.Handler {
+	healthy := &atomic.Bool{}
+	healthy.Store(true)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/slow", slowHandler)
 	mux.HandleFunc("/error", errorHandler)
 	mux.HandleFunc("/reset", resetConnectionHandler)
 	mux.HandleFunc("/new", newHandler)
+	mux.HandleFunc("/health", healthHandler(healthy))
+	mux.HandleFunc("/health/", healthHandler(healthy))
 	mux.HandleFunc("/", defaultHandler)
 	return middleware(backend, mux)
 }
