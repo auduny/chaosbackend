@@ -19,13 +19,52 @@ type connection struct {
 	slowc          int
 	slowcSpan      int
 	slowcFreq      int
-	slowbb         int
-	slowbbSpan     int
-	reset          int
-	resetFreq      int
 }
 
 var templateFile string
+
+// chance returns true with pct percent probability (0 = never, 100 = always).
+func chance(pct int) bool {
+	return rand.Intn(100) < pct
+}
+
+// parseStatus parses an HTTP status code, returning def when empty.
+func parseStatus(s string, def int) (int, error) {
+	if s == "" {
+		return def, nil
+	}
+	code, err := strconv.Atoi(s)
+	// net/http panics on codes outside 100-999, and 1xx are not final responses
+	if err != nil || code < 200 || code > 999 {
+		return 0, fmt.Errorf("invalid status code %q (must be 200-999)", s)
+	}
+	return code, nil
+}
+
+// respond writes a plain text response, omitting the body where HTTP forbids one.
+func respond(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(code)
+	if code != http.StatusNoContent && code != http.StatusNotModified {
+		fmt.Fprintln(w, msg)
+	}
+}
+
+func badRequest(w http.ResponseWriter, err error) {
+	log.Println("Bad request:", err)
+	respond(w, http.StatusBadRequest, err.Error())
+}
+
+// hijackAndClose drops the TCP connection without sending a response.
+func hijackAndClose(w http.ResponseWriter) {
+	conn, _, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		log.Printf("Hijacking failed: %v\n", err)
+		http.Error(w, "Hijacking failed", http.StatusInternalServerError)
+		return
+	}
+	conn.Close()
+}
 
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := template.ParseFiles(templateFile)
@@ -61,28 +100,19 @@ func slowHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func errorHandler(w http.ResponseWriter, r *http.Request) {
-	statusCode, _ := strconv.Atoi(r.URL.Query().Get("status"))
-	if statusCode == 0 {
-		// Default to 500
-		statusCode = 500
+	statusCode, err := parseStatus(r.URL.Query().Get("status"), http.StatusInternalServerError)
+	if err != nil {
+		badRequest(w, err)
+		return
 	}
 	sleepBeforeFirstByte, _ := strconv.Atoi(r.URL.Query().Get("sleep"))
 	log.Println("Returning Statuscode:", statusCode, "Sleeping for", sleepBeforeFirstByte, "ms")
 	time.Sleep(time.Duration(sleepBeforeFirstByte) * time.Millisecond)
-	http.Error(w, "Returning Statuscode: "+strconv.Itoa(statusCode), statusCode)
+	respond(w, statusCode, "Returning Statuscode: "+strconv.Itoa(statusCode))
 }
 
 func resetConnectionHandler(w http.ResponseWriter, r *http.Request) {
-	// Take over the connection
-	conn, _, err := w.(http.Hijacker).Hijack()
-	if err != nil {
-		log.Printf("Hijacking failed: %v\n", err)
-		http.Error(w, "Hijacking failed", http.StatusInternalServerError)
-		return
-	}
-
-	// Close the connection immediately
-	conn.Close()
+	hijackAndClose(w)
 }
 
 func addHeaders(next http.Handler) http.Handler {
@@ -94,18 +124,20 @@ func addHeaders(next http.Handler) http.Handler {
 }
 
 func newHandler(w http.ResponseWriter, r *http.Request) {
-	conn := connection{statusCode: 200, statusCodeFreq: 0, slowc: 0, slowcSpan: 0, slowcFreq: 10, slowbbSpan: 0, reset: 0, resetFreq: 0}
+	conn := connection{statusCode: 200, slowcFreq: 10}
 	if r.URL.Query().Get("status") != "" {
 		statusParts := strings.Split(r.URL.Query().Get("status"), ",")
+		code, err := parseStatus(statusParts[0], http.StatusOK)
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
+		conn.statusCodeFreq = 100
 		if len(statusParts) > 1 {
-			randomness := rand.Intn(100)
 			conn.statusCodeFreq, _ = strconv.Atoi(statusParts[1])
-			log.Println("Frequency:", randomness, "StatusCodeFreq:", conn.statusCodeFreq)
-			if randomness <= conn.statusCodeFreq {
-				conn.statusCode, _ = strconv.Atoi(statusParts[0])
-			}
-		} else {
-			conn.statusCode, _ = strconv.Atoi(statusParts[0])
+		}
+		if chance(conn.statusCodeFreq) {
+			conn.statusCode = code
 		}
 	}
 	if r.URL.Query().Get("slow") != "" {
@@ -116,9 +148,8 @@ func newHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(slowParts) > 1 {
 			conn.slowcSpan, _ = strconv.Atoi(slowParts[1])
-			randomness := rand.Intn(100)
-			log.Println("Frequency:", randomness, "SlowcFreq:", conn.slowcFreq)
-			if randomness <= conn.slowcFreq {
+			// rand.Intn panics on 0
+			if conn.slowcSpan > 0 && chance(conn.slowcFreq) {
 				conn.slowc = conn.slowc + rand.Intn(conn.slowcSpan)
 			}
 		}
@@ -127,28 +158,21 @@ func newHandler(w http.ResponseWriter, r *http.Request) {
 	time.Sleep(time.Duration(conn.slowc) * time.Millisecond)
 
 	if r.URL.Query().Get("reset") != "" {
-		thisconnection, _, err := w.(http.Hijacker).Hijack()
-		if err != nil {
-			log.Printf("Hijacking failed: %v\n", err)
-			http.Error(w, "Hijacking failed", http.StatusInternalServerError)
-			return
-		}
-
-		// Close the connection immediately
-		thisconnection.Close()
+		hijackAndClose(w)
+		return
 	}
-	http.Error(w, "Returning Statuscode: "+strconv.Itoa(conn.statusCode)+" in "+strconv.Itoa(conn.slowc)+"ms", conn.statusCode)
+	respond(w, conn.statusCode, "Returning Statuscode: "+strconv.Itoa(conn.statusCode)+" in "+strconv.Itoa(conn.slowc)+"ms")
 }
 
 func main() {
-       var (
-	       addressesInput string
-	       portsInput     string
-       )
-       flag.StringVar(&addressesInput, "a", "127.0.0.1", "Comma-separated list of addresses")
-       flag.StringVar(&portsInput, "p", "8080", "Comma-separated list of ports or port ranges (e.g., 4000-4020)")
-       flag.StringVar(&templateFile, "template", "template.html", "Path to HTML template file for the default page")
-       flag.Parse()
+	var (
+		addressesInput string
+		portsInput     string
+	)
+	flag.StringVar(&addressesInput, "a", "127.0.0.1", "Comma-separated list of addresses")
+	flag.StringVar(&portsInput, "p", "8080", "Comma-separated list of ports or port ranges (e.g., 4000-4020)")
+	flag.StringVar(&templateFile, "template", "template.html", "Path to HTML template file for the default page")
+	flag.Parse()
 
 	// Split the addresses and ports
 	addresses := strings.Split(addressesInput, ",")
