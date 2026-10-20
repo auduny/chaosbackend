@@ -2,16 +2,22 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"html/template"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -22,6 +28,9 @@ type connection struct {
 	slowcSpan      int
 	slowcFreq      int
 }
+
+// Set by goreleaser via -ldflags "-X main.version=..."
+var version = "dev"
 
 //go:embed template.html
 var defaultTemplate string
@@ -76,6 +85,26 @@ func parseStatus(s string, def int) (int, error) {
 		return 0, fmt.Errorf("invalid status code %q (must be 200-999)", s)
 	}
 	return code, nil
+}
+
+// parsePorts expands "8080,9000-9002" into individual ports.
+func parsePorts(s string) ([]string, error) {
+	var ports []string
+	for _, part := range strings.Split(s, ",") {
+		startStr, endStr, isRange := strings.Cut(part, "-")
+		if !isRange {
+			endStr = startStr
+		}
+		start, err1 := strconv.Atoi(startStr)
+		end, err2 := strconv.Atoi(endStr)
+		if err1 != nil || err2 != nil || start < 1 || end > 65535 || start > end {
+			return nil, fmt.Errorf("invalid port or port range %q", part)
+		}
+		for p := start; p <= end; p++ {
+			ports = append(ports, strconv.Itoa(p))
+		}
+	}
+	return ports, nil
 }
 
 // respond writes a plain text response, omitting the body where HTTP forbids one.
@@ -213,16 +242,40 @@ func newHandler(w http.ResponseWriter, r *http.Request) {
 	respond(w, conn.statusCode, "Returning Statuscode: "+strconv.Itoa(conn.statusCode)+" in "+strconv.Itoa(conn.slowc)+"ms")
 }
 
+func newMux() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/slow", slowHandler)
+	mux.HandleFunc("/error", errorHandler)
+	mux.HandleFunc("/reset", resetConnectionHandler)
+	mux.HandleFunc("/new", newHandler)
+	mux.Handle("/", addHeaders(http.HandlerFunc(defaultHandler)))
+	return mux
+}
+
 func main() {
 	var (
 		addressesInput string
 		portsInput     string
 		templateFile   string
+		certFile       string
+		keyFile        string
+		showVersion    bool
 	)
 	flag.StringVar(&addressesInput, "a", "127.0.0.1", "Comma-separated list of addresses")
 	flag.StringVar(&portsInput, "p", "8080", "Comma-separated list of ports or port ranges (e.g., 4000-4020)")
 	flag.StringVar(&templateFile, "template", "", "Path to HTML template file for the default page (default: built-in)")
+	flag.StringVar(&certFile, "cert", "", "TLS certificate file (enables HTTPS together with -key)")
+	flag.StringVar(&keyFile, "key", "", "TLS private key file")
+	flag.BoolVar(&showVersion, "version", false, "Print version and exit")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println("chaosbackend", version)
+		return
+	}
+	if (certFile == "") != (keyFile == "") {
+		log.Fatal("-cert and -key must be used together")
+	}
 
 	var err error
 	if templateFile != "" {
@@ -234,50 +287,65 @@ func main() {
 		log.Fatal("Parsing template: ", err)
 	}
 
-	// Split the addresses and ports
-	addresses := strings.Split(addressesInput, ",")
-	portParts := strings.Split(portsInput, ",")
-	// Expand port ranges
-	var ports []string
-	for _, part := range portParts {
-		if strings.Contains(part, "-") {
-			rangeParts := strings.Split(part, "-")
-			start, err := strconv.Atoi(rangeParts[0])
+	ports, err := parsePorts(portsInput)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Cancelled on Ctrl+C / SIGTERM, which also aborts any in-flight sleeps
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Bind everything up front so a busy port fails fast
+	var servers []*http.Server
+	var listeners []net.Listener
+	for _, address := range strings.Split(addressesInput, ",") {
+		for _, port := range ports {
+			addr := net.JoinHostPort(address, port)
+			ln, err := net.Listen("tcp", addr)
 			if err != nil {
-				fmt.Printf("Invalid port range start: %s\n", rangeParts[0])
-				continue
+				log.Fatal(err)
 			}
-			end, err := strconv.Atoi(rangeParts[1])
-			if err != nil {
-				fmt.Printf("Invalid port range end: %s\n", rangeParts[1])
-				continue
-			}
-			for p := start; p <= end; p++ {
-				ports = append(ports, strconv.Itoa(p))
-			}
-		} else {
-			ports = append(ports, part)
+			servers = append(servers, &http.Server{
+				Handler:           newMux(),
+				ReadHeaderTimeout: 10 * time.Second,
+				BaseContext:       func(net.Listener) context.Context { return ctx },
+				// Stick to HTTP/1.1 over TLS, since connection hijacking (/reset) is not possible with HTTP/2
+				TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
+			})
+			listeners = append(listeners, ln)
 		}
+	}
+
+	scheme := "http"
+	if certFile != "" {
+		scheme = "https"
 	}
 	var wg sync.WaitGroup
-	for _, address := range addresses {
-		for _, port := range ports {
-			fullAddr := fmt.Sprintf("%s:%s", address, port)
-			wg.Add(1)
-			go func(addr string) {
-				defer wg.Done()
-				mux := http.NewServeMux()
-				finalHandler := http.HandlerFunc(defaultHandler)
-				mux.HandleFunc("/slow", slowHandler)
-				mux.HandleFunc("/error", errorHandler)
-				mux.HandleFunc("/reset", resetConnectionHandler)
-				mux.HandleFunc("/new", newHandler)
-				mux.Handle("/", addHeaders(finalHandler)) // Register the default handler
-				log.Println("Starting server on", addr)
-				log.Fatal(http.ListenAndServe(addr, mux))
-			}(fullAddr)
-		}
+	for i, srv := range servers {
+		wg.Add(1)
+		go func(srv *http.Server, ln net.Listener) {
+			defer wg.Done()
+			log.Printf("Starting server on %s://%s", scheme, ln.Addr())
+			var err error
+			if certFile != "" {
+				err = srv.ServeTLS(ln, certFile, keyFile)
+			} else {
+				err = srv.Serve(ln)
+			}
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatal(err)
+			}
+		}(srv, listeners[i])
 	}
-	log.Println("Number of servers:", len(addresses)*len(ports))
-	wg.Wait() // Wait for all servers to finish
+	log.Println("Number of servers:", len(servers))
+
+	<-ctx.Done()
+	log.Println("Shutting down")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, srv := range servers {
+		srv.Shutdown(shutdownCtx)
+	}
+	wg.Wait()
 }
