@@ -60,21 +60,44 @@
 <body>
     <h1>Chaosbackend</h1>
     <p>This is a backend meant to be used with varnish to test different scenarios.</p>
+    <p>Faults are query parameters. They work on any path and can be combined.<br>
+       <code>,pct</code> makes a fault happen only that percent of the time.</p>
     <dl>
-        <dt><a href="/error">/error</a></dt>
-        <dd>Returns a 500 internal server error</dd>
+        <dt><a href="/page?status=404&sleep=5000">/page?status=404&sleep=5000</a></dt>
+        <dd><code>status</code> and <code>sleep</code> (ms): returns a 404 after 5 seconds</dd>
 
-        <dt><a href="/error?status=404">/error?status=404</a></dt>
-        <dd>Returns a 404 error</dd>
+        <dt><a href="/page?status=503,50">/page?status=503,50</a></dt>
+        <dd>Returns a 503 half of the time, otherwise 200</dd>
 
-        <dt><a href="/error?status=404&sleep=5000">/error?status=404&sleep=5000</a></dt>
-        <dd>Returns a 404 error after 5 seconds</dd>
+        <dt><a href="/page?sleep=1000,500,30">/page?sleep=1000,500,30</a></dt>
+        <dd>Waits 1 second, plus up to 0.5 seconds extra 30% of the time</dd>
 
-        <dt><a href="/reset">/reset</a></dt>
-        <dd>Close connection like a champ!</dd>
+        <dt><a href="/page?sleep=1000&sleepBetweenBytes=100">/page?sleep=1000&sleepBetweenBytes=100</a></dt>
+        <dd>Waits 1 second, then sends the body one byte every 0.1 seconds</dd>
 
-        <dt><a href="/slow?sleep=1000&sleepBetweenBytes=100">/slow?sleep=1000&sleepBetweenBytes=100</a></dt>
-        <dd>Returns a 200 but waits 1 second before start delivering, then wait 0.1 seconds between bytes</dd>
+        <dt><a href="/page?reset=1,20">/page?reset=1,20</a></dt>
+        <dd>Closes the connection without a response 20% of the time. Plain <code>reset</code> always does</dd>
+
+        <dt><a href="/page?bytes=10000&truncate">/page?bytes=10000&truncate</a></dt>
+        <dd>Promises 10000 bytes, sends half, then closes the connection. <code>truncate=N</code> cuts after N bytes</dd>
+
+        <dt><a href="/page?bytes=1048576">/page?bytes=1048576</a></dt>
+        <dd>Returns a 1 MiB body. Add <code>chunked</code> to drop the Content-Length</dd>
+
+        <dt><a href="/page?status=200&header=Cache-Control:max-age=60">/page?header=Cache-Control:max-age=60</a></dt>
+        <dd>Adds response headers. Can be repeated</dd>
+
+        <dt><a href="/page?echo">/page?echo</a></dt>
+        <dd>Shows the request as the backend received it</dd>
+
+        <dt><a href="/page?status=503,10&sleep=200,800&reset=1,2&truncate=1,5&bytes=20000">/page?status=503,10&sleep=200,800&reset=1,2&truncate=1,5&bytes=20000</a></dt>
+        <dd>All together: a flaky origin</dd>
+
+        <dt><a href="/health">/health</a></dt>
+        <dd>Health check. Use <a href="/health/down">/health/down</a>, <a href="/health/up">/health/up</a> or <a href="/health/toggle">/health/toggle</a> to change it for this port</dd>
+
+        <dt><a href="/error">/error</a> &middot; <a href="/reset">/reset</a></dt>
+        <dd>Aliases: <code>status</code> defaults to 500, and <code>reset</code> is on by default</dd>
     </dl>
 </body>
 </html>
